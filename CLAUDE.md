@@ -57,8 +57,10 @@ The app loads `.frag` files (pre-converted IFC models) and renders them in a 3D 
 ```json
 {
   "@thatopen/components": "^3.3.2",
+  "@thatopen/components-front": "~3.3.0",
   "@thatopen/fragments": "~3.3.0",
   "@thatopen/ui": "~3.3.0",
+  "web-ifc": "^0.0.74",
   "three": "^0.175.0",
   "stats.js": "^0.17.0"
 }
@@ -72,10 +74,23 @@ The app loads `.frag` files (pre-converted IFC models) and renders them in a 3D 
 }
 ```
 
+**Package roles (all v3):**
+
+| Package | Role | Import alias |
+|---------|------|-------------|
+| `@thatopen/components` | Core BIM component system — worlds, camera, scene, FragmentsManager, IfcLoader, etc. | `OBC` |
+| `@thatopen/components-front` | Browser-only tools — Highlighter, PostproductionRenderer, Clipper, Outliner, measurements | `OBCF` |
+| `@thatopen/fragments` | Binary `.frag` model format, used internally by FragmentsManager | (internal) |
+| `@thatopen/ui` | Web Component UI system (built on Lit) — panels, buttons, inputs | `BUI` |
+| `web-ifc` | WebAssembly IFC parser — only needed when converting raw `.ifc` files | (internal) |
+| `three` | 3D rendering engine underlying everything | `THREE` |
+| `stats.js` | FPS/memory performance overlay | `Stats` |
+
 **Important version notes:**
-- `three` must be `>=0.175.0` — fragments library requires this exact API surface
-- `@thatopen/fragments` and `@thatopen/components` must stay on the same `~3.3.x` minor version
-- `web-ifc` (only needed if converting IFC files to fragments) must be `>=0.0.74`
+- All `@thatopen/*` packages must be on the same `~3.3.x` minor version — mixing versions causes runtime errors
+- `three` must be `>=0.175.0` — fragments requires this exact API surface
+- `web-ifc` must be `0.0.74` — must match the version expected by `@thatopen/components`
+- Do **not** install `openbim-components` — that is the incompatible v1 package (see §13)
 
 ---
 
@@ -152,31 +167,48 @@ The `Components` class is the central registry. All tools are accessed through i
 
 ```typescript
 import * as OBC from "@thatopen/components";
+import * as OBCF from "@thatopen/components-front"; // browser-only tools
 
 const components = new OBC.Components();
 
 // Pattern: components.get(ComponentClass) → returns singleton instance
+// Works for both OBC and OBCF components — same registry
 const worlds = components.get(OBC.Worlds);
 const fragments = components.get(OBC.FragmentsManager);
 const grids = components.get(OBC.Grids);
+const highlighter = components.get(OBCF.Highlighter); // OBCF component, same pattern
 ```
 
 `components.get()` always returns the **same instance** — it creates it on first call,
 then caches it. Never instantiate components directly (e.g. `new OBC.FragmentsManager()`).
 
-### Available core components
+### Available components — @thatopen/components (OBC)
 
 | Class | Purpose |
 |-------|---------|
 | `OBC.Worlds` | Manages 3D environments |
 | `OBC.FragmentsManager` | Loads and manages .frag model files |
+| `OBC.IfcLoader` | Convert .ifc files to fragments (see snippets/) |
 | `OBC.Grids` | Renders reference grid planes |
 | `OBC.Raycasters` | Mouse-based object picking |
 | `OBC.Viewpoints` | Save/restore camera positions |
 | `OBC.BoundingBoxer` | Compute bounding boxes for models |
 | `OBC.Classifier` | Classify model elements by property |
 | `OBC.Hider` | Show/hide elements in a model |
-| `OBC.IfcLoader` | Convert .ifc files to fragments (see snippets/) |
+
+### Available components — @thatopen/components-front (OBCF)
+
+These require a browser environment (WebGL) and must be used with a world.
+
+| Class | Purpose |
+|-------|---------|
+| `OBCF.Highlighter` | Click/hover highlighting of model elements |
+| `OBCF.PostproductionRenderer` | Renderer with ambient occlusion, bloom, outlines |
+| `OBCF.Outliner` | Element outline effect |
+| `OBCF.ClipEdges` | Clipping plane with styled section fills |
+| `OBCF.LengthMeasurement` | Interactive length measurement tool |
+| `OBCF.AreaMeasurement` | Interactive area measurement tool |
+| `OBCF.Marker` | Place text markers on the model |
 
 ### Component lifecycle events
 
@@ -577,6 +609,43 @@ hider.set(false, { "my-model-id": new Set([123, 456]) });
 
 // Show them again
 hider.set(true, { "my-model-id": new Set([123, 456]) });
+```
+
+### Highlight elements on click (requires @thatopen/components-front)
+
+```typescript
+import * as OBCF from "@thatopen/components-front";
+
+const highlighter = components.get(OBCF.Highlighter);
+// Must be set up with the world after components.init()
+await highlighter.setup({ world });
+
+// Listen for click-selection events
+highlighter.events.select.onHighlight.add((fragmentIdMap) => {
+  // fragmentIdMap: { [fragmentId: string]: Set<number> }  (expressIDs)
+  for (const [fragmentId, expressIds] of Object.entries(fragmentIdMap)) {
+    console.log("Selected fragment:", fragmentId, "IDs:", [...expressIds]);
+  }
+});
+
+highlighter.events.select.onClear.add(() => {
+  console.log("Selection cleared");
+});
+```
+
+### Post-processing renderer (requires @thatopen/components-front)
+
+```typescript
+import * as OBCF from "@thatopen/components-front";
+
+// Use PostproductionRenderer instead of SimpleRenderer for visual effects
+world.renderer = new OBCF.PostproductionRenderer(components, container);
+components.init(); // then init as normal
+
+// Enable after init
+const postproduction = (world.renderer as OBCF.PostproductionRenderer).postproduction;
+postproduction.enabled = true;
+postproduction.customEffects.outlineEnabled = true; // element outlines
 ```
 
 ---
