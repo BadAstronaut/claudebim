@@ -1,0 +1,23 @@
+{
+  "name": "claudebim",
+  "version": "1.0.0",
+  "description": "BIM viewer with FragmentsManager example",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@thatopen/components": "^3.3.2",
+    "@thatopen/fragments": "~3.3.0",
+    "@thatopen/ui": "~3.3.0",
+    "stats.js": "^0.17.0",
+    "three": "^0.175.0"
+  },
+  "devDependencies": {
+    "@types/stats.js": "^0.17.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11"
+  }
+}
