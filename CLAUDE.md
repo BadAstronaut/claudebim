@@ -5,6 +5,21 @@ Read it fully before writing any code. Every pattern here reflects working, test
 
 ---
 
+> ## ⚠️ CRITICAL: You Must Be Using the Correct API Version
+>
+> There are **two completely incompatible versions** of this library in the wild.
+> Many AI training examples, tutorials, and Stack Overflow answers use the **old v1 API**.
+> This project uses **v3**. Writing v1 code in a v3 project will always fail silently or crash.
+>
+> | Signal | API Version |
+> |--------|------------|
+> | `import * as OBC from "openbim-components"` | ❌ v1 — **DO NOT USE** |
+> | `import * as OBC from "@thatopen/components"` | ✅ v3 — **THIS PROJECT** |
+>
+> See [Section 13](#13-v1-api-openbim-components-vs-v3-api-thatopencomponents) for the full migration table.
+
+---
+
 ## Table of Contents
 
 1. [What This Project Is](#1-what-this-project-is)
@@ -19,6 +34,8 @@ Read it fully before writing any code. Every pattern here reflects working, test
 10. [Common Mistakes — Do Not Do These](#10-common-mistakes)
 11. [How to Add a New Feature](#11-how-to-add-a-new-feature)
 12. [API Quick Reference](#12-api-quick-reference)
+13. [V1 API vs V3 API — Full Comparison](#13-v1-api-openbim-components-vs-v3-api-thatopencomponents)
+14. [WASM Loading Options (web-ifc)](#14-wasm-loading-options-web-ifc)
 
 ---
 
@@ -762,6 +779,245 @@ https://thatopen.github.io/engine_fragment/resources/worker.mjs
 ```
 
 This is the official That Open Company hosted worker. Do not host it locally or change the URL.
+
+---
+
+## 13. V1 API (`openbim-components`) vs V3 API (`@thatopen/components`)
+
+The library was rewritten between v1 and v3. **Every single pattern changed.**
+If you see any of the v1 patterns below in your own code, replace them with the v3 equivalents.
+
+### Package name
+
+```typescript
+// ❌ V1 — wrong package, DO NOT USE
+import * as OBC from "openbim-components";
+
+// ✅ V3 — correct
+import * as OBC from "@thatopen/components";
+import * as OBCF from "@thatopen/components-front"; // for frontend-only tools
+```
+
+### Core setup
+
+| V1 pattern | V3 equivalent |
+|------------|---------------|
+| `const viewer = new OBC.Components()` | `const components = new OBC.Components()` |
+| `viewer.onInitialized.add(() => {})` | No equivalent — use `components.init()` directly |
+| `viewer.scene = new OBC.SimpleScene(viewer)` | `world.scene = new OBC.SimpleScene(components)` (via worlds system) |
+| `viewer.renderer = new OBC.PostproductionRenderer(viewer, el)` | `world.renderer = new OBC.SimpleRenderer(components, el)` |
+| `viewer.camera = new OBC.OrthoPerspectiveCamera(viewer)` | `world.camera = new OBC.OrthoPerspectiveCamera(components)` |
+| `viewer.raycaster = new OBC.SimpleRaycaster(viewer)` | `components.get(OBC.Raycasters)` |
+| `viewer.init()` | `components.init()` (after world setup) |
+| No worlds concept | **Required:** `components.get(OBC.Worlds).create()` |
+
+### Component instantiation
+
+```typescript
+// ❌ V1 — direct instantiation
+const ifcLoader = new OBC.FragmentIfcLoader(viewer);
+const highlighter = new OBC.FragmentHighlighter(viewer);
+const grid = new OBC.SimpleGrid(viewer, new THREE.Color(0x666666));
+
+// ✅ V3 — always use the component registry
+const ifcLoader = components.get(OBC.IfcLoader);
+const highlighter = components.get(OBCF.Highlighter); // from @thatopen/components-front
+components.get(OBC.Grids).create(world);
+```
+
+### IFC loading
+
+```typescript
+// ❌ V1
+const ifcLoader = new OBC.FragmentIfcLoader(viewer);
+ifcLoader.onIfcLoaded.add(async (model) => {
+  // model is available here
+});
+
+// ✅ V3 — IFC loading goes through FragmentsManager
+// The model appears in fragments.list.onItemSet, not in ifcLoader events
+const ifcLoader = components.get(OBC.IfcLoader);
+await ifcLoader.setup({ wasm: { path: "/", absolute: false } });
+
+// Model appears here when loaded (regardless of whether loaded via IfcLoader or directly as .frag)
+fragments.list.onItemSet.add(({ value: model }) => {
+  model.useCamera(world.camera.three);
+  world.scene.three.add(model.object);
+  fragments.core.update(true);
+});
+
+// Load the IFC: load(data, coordinate, name)
+const data = new Uint8Array(await file.arrayBuffer());
+await ifcLoader.load(data, true, "my-model");
+```
+
+### Highlighting (requires @thatopen/components-front)
+
+```typescript
+// ❌ V1
+const highlighter = new OBC.FragmentHighlighter(viewer);
+highlighter.setup();
+highlighter.events.select.onHighlight.add((selection) => { ... });
+
+// ✅ V3 — from @thatopen/components-front
+import * as OBCF from "@thatopen/components-front";
+const highlighter = components.get(OBCF.Highlighter);
+await highlighter.setup({ world });
+highlighter.events.select.onHighlight.add((fragmentIdMap) => { ... });
+```
+
+### Renderer with post-processing
+
+```typescript
+// ❌ V1
+const renderer = new OBC.PostproductionRenderer(viewer, container);
+viewer.renderer = renderer;
+renderer.postproduction.enabled = true;
+
+// ✅ V3 — PostproductionRenderer is in @thatopen/components-front
+import * as OBCF from "@thatopen/components-front";
+world.renderer = new OBCF.PostproductionRenderer(components, container);
+// After components.init():
+(world.renderer as OBCF.PostproductionRenderer).postproduction.enabled = true;
+```
+
+### UI / Toolbar
+
+```typescript
+// ❌ V1 — built-in toolbar system
+const toolbar = new OBC.Toolbar(viewer);
+toolbar.addChild(ifcLoader.uiElement.get("main"));
+viewer.ui.addToolbar(toolbar);
+
+// ✅ V3 — use @thatopen/ui (BUI) Web Components
+import * as BUI from "@thatopen/ui";
+BUI.Manager.init();
+const [panel] = BUI.Component.create(() => BUI.html`
+  <bim-panel label="Controls">
+    <bim-panel-section label="Models">
+      <bim-button label="Load IFC" @click=${loadHandler}></bim-button>
+    </bim-panel-section>
+  </bim-panel>
+`, {});
+document.body.append(panel);
+```
+
+### Properties / element data
+
+```typescript
+// ❌ V1
+const processor = new OBC.IfcPropertiesProcessor(viewer);
+processor.process(model);
+processor.renderProperties(model, expressID);
+
+// ✅ V3 — access properties directly from the model
+// FragmentsModel has built-in property access
+const props = await model.getProperties(expressID);
+```
+
+### Scene background color
+
+```typescript
+// ❌ V1
+scene.background = new THREE.Color("#202932"); // direct THREE.Color
+
+// ✅ V3 — same, but access through world.scene.three
+world.scene.three.background = new THREE.Color("#202932");
+// or null for transparent:
+world.scene.three.background = null;
+```
+
+---
+
+## 14. WASM Loading Options (web-ifc)
+
+`web-ifc` requires `.wasm` binary files to be accessible at runtime.
+You only need this if you're loading raw `.ifc` files — not needed for pre-built `.frag` files.
+
+There are two ways to provide the WASM files:
+
+### Option A: UNPKG CDN (recommended for quick setup / GitHub Pages)
+
+No local files needed. The WASM is fetched from the npm CDN.
+Use `absolute: true` when providing a full URL.
+
+```typescript
+await ifcLoader.setup({
+  wasm: {
+    path: "https://unpkg.com/web-ifc@0.0.74/",  // trailing slash required
+    absolute: true,   // true because this is a full URL, not a relative path
+  },
+});
+```
+
+**Which version to use:** Must match the `web-ifc` version in your `package.json`.
+This project uses `web-ifc@0.0.74`, so the UNPKG URL is `https://unpkg.com/web-ifc@0.0.74/`.
+
+The UNPKG package contains:
+- `web-ifc.wasm` — main WebAssembly module
+- `web-ifc-mt.wasm` — multi-threaded variant
+- `web-ifc-node.wasm` — Node.js variant (not used in browser)
+
+### Option B: Local files (better for offline / production)
+
+Copy the WASM files from `node_modules/web-ifc/` to your `public/` directory,
+then reference them with a relative path.
+
+**With Vite:** Add `vite-plugin-static-copy` to `vite.config.ts`:
+
+```typescript
+// vite.config.ts
+import { defineConfig } from "vite";
+import { viteStaticCopy } from "vite-plugin-static-copy";
+
+export default defineConfig({
+  base: "./",
+  plugins: [
+    viteStaticCopy({
+      targets: [
+        { src: "node_modules/web-ifc/web-ifc.wasm", dest: "" },
+        { src: "node_modules/web-ifc/web-ifc-mt.wasm", dest: "" },
+      ],
+    }),
+  ],
+});
+```
+
+Then set up IfcLoader with a relative path:
+
+```typescript
+await ifcLoader.setup({
+  wasm: {
+    path: "./",       // WASM files are at the root of the deployed site
+    absolute: false,  // false = relative path
+  },
+});
+```
+
+**Or manually:** Copy the files to `public/` yourself:
+```bash
+cp node_modules/web-ifc/web-ifc.wasm public/
+cp node_modules/web-ifc/web-ifc-mt.wasm public/
+```
+
+### Option C: Let autoSetWasm handle it (development only)
+
+`IfcFragmentSettings.autoSetWasm` defaults to `true`, which tries to locate
+the WASM files automatically. This works in local development but is unreliable
+in production. Always set explicit paths for builds that will be deployed.
+
+```typescript
+// Development only — may not work in production
+await ifcLoader.setup(); // autoSetWasm: true is the default
+```
+
+### Summary
+
+| Scenario | Recommended option |
+|----------|--------------------|
+| Quick prototype / GitHub Pages | UNPKG CDN (`absolute: true`) |
+| Production app, offline support | Local files (`absolute: false`) |
+| Local dev only | `autoSetWasm: true` (default, no config needed) |
 
 ---
 

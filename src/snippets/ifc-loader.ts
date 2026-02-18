@@ -21,18 +21,19 @@
 
 import * as OBC from "@thatopen/components";
 
-// WASM files for web-ifc must be served as static assets.
-// In Vite, put them in public/ and reference with a path from root.
+// WASM files for web-ifc can be loaded in two ways:
 //
-// How to get the WASM files:
-//   node_modules/web-ifc/web-ifc.wasm
-//   node_modules/web-ifc/web-ifc-mt.wasm
+// OPTION A — UNPKG CDN (easiest, no local files needed):
+//   path: "https://unpkg.com/web-ifc@0.0.74/", absolute: true
+//   Version must match web-ifc in package.json (currently 0.0.74)
 //
-// In vite.config.ts, add:
-//   import { viteStaticCopy } from 'vite-plugin-static-copy';
-//   plugins: [viteStaticCopy({ targets: [{ src: 'node_modules/web-ifc/*.wasm', dest: '' }] })]
+// OPTION B — Local files (better for offline / production):
+//   Copy from node_modules/web-ifc/ to public/:
+//     web-ifc.wasm
+//     web-ifc-mt.wasm
+//   Then: path: "./", absolute: false
 //
-// Or manually copy them to public/ in your project.
+// See CLAUDE.md §14 for full details on both options.
 
 /**
  * Sets up the IfcLoader component with WASM paths.
@@ -56,12 +57,20 @@ export async function setupIfcLoader(
   //
   // With Vite, copy WASM files to public/ and set wasm.path to "/".
   // If autoSetWasm is true (default), you can often skip the wasm config entirely.
+  // UNPKG CDN — recommended for quick setup and GitHub Pages deploys.
+  // Change the version to match web-ifc in package.json.
   await ifcLoader.setup({
     wasm: {
-      path: "/",       // path to directory containing web-ifc.wasm
-      absolute: false, // false = relative to the app root
+      path: "https://unpkg.com/web-ifc@0.0.74/", // trailing slash required
+      absolute: true,  // true = full URL, not a relative path
     },
   });
+
+  // ALTERNATIVE: local WASM files in public/ (better for offline/production)
+  // Copy web-ifc.wasm + web-ifc-mt.wasm from node_modules/web-ifc/ to public/
+  // await ifcLoader.setup({
+  //   wasm: { path: "./", absolute: false },
+  // });
 
   return ifcLoader;
 }
